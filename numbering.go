@@ -36,16 +36,16 @@ func main() {
 	}
 
 	// 取得したファイルからJPEGファイルのみを抽出([]fs.DirEntry)
-	jpeg_files := extractJpegFiles(files)
+	jpegFiles := extractJpegFiles(files)
 
 	// ファイルをリネーム
-	renameFiles(jpeg_files)
+	renameFiles(jpegFiles)
 }
 
 // used by main()
-func getFiles(source_dir string) ([]fs.DirEntry, error) {
+func getFiles(sourceDir string) ([]fs.DirEntry, error) {
 	// 対象ディレクトリの中のファイル全てを取得、格納
-	files, err := os.ReadDir(source_dir)
+	files, err := os.ReadDir(sourceDir)
 
 	// エラーがあれば"err"を返す
 	if err != nil {
@@ -57,24 +57,24 @@ func getFiles(source_dir string) ([]fs.DirEntry, error) {
 
 // used by main()
 func extractJpegFiles(files []fs.DirEntry) []fs.DirEntry {
-	var jpeg_images []fs.DirEntry
+	var jpegImages []fs.DirEntry
 	for _, file := range files {
 		switch filepath.Ext(file.Name()) {
 		case ".jpeg", ".jpg", ".JPG":
-			jpeg_images = append(jpeg_images, file)
+			jpegImages = append(jpegImages, file)
 		default:
 		}
 	}
 
-	return jpeg_images
+	return jpegImages
 }
 
 // used by main()
-func renameFiles(jpeg_files []fs.DirEntry) {
+func renameFiles(jpegFiles []fs.DirEntry) {
 	num := 1
-	for _, jpeg_file := range jpeg_files {
-		oldPath := filepath.Join(dir, jpeg_file.Name())
-		ext := filepath.Ext(jpeg_file.Name()) // 拡張子を取得
+	for _, jpegFile := range jpegFiles {
+		oldPath := filepath.Join(dir, jpegFile.Name())
+		ext := filepath.Ext(jpegFile.Name()) // 拡張子を取得
 
 		// 3桁ゼロ埋め（例: "photo_001.jpg"）
 		newPath := filepath.Join(dir, fmt.Sprintf("%s%03d%s", prefix, num, ext))
@@ -86,5 +86,5 @@ func renameFiles(jpeg_files []fs.DirEntry) {
 		num++
 	}
 
-	fmt.Println("rename completed!!")
+	log.Println("rename completed!!")
 }
