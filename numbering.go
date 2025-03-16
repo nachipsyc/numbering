@@ -84,15 +84,19 @@ func extractJpegFiles(files []fs.DirEntry) []fs.DirEntry {
 func renameFiles(jpegFiles []fs.DirEntry) {
 	num := 1
 	for _, jpegFile := range jpegFiles {
+		originalFileName := jpegFile.Name()
 		oldPath := filepath.Join(dir, jpegFile.Name())
 		ext := filepath.Ext(jpegFile.Name()) // 拡張子を取得
 
 		// 3桁ゼロ埋め（例: "photo_001.jpg"）
 		newPath := filepath.Join(dir, fmt.Sprintf("%s%03d%s", prefix, num, ext))
+		newFileName := fmt.Sprintf("%s%03d%s", prefix, num, ext)
 
 		err := os.Rename(oldPath, newPath)
 		if err != nil {
-			log.Println("Failed to rename:", oldPath, "->", newPath, err)
+			log.Println("Failed", oldPath, "->", newPath, err)
+		} else {
+			fmt.Printf("success: %s -> %s\n", originalFileName, newFileName)
 		}
 		num++
 	}
