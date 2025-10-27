@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"flag"
 	"fmt"
 	"io/fs"
@@ -23,6 +24,18 @@ var numberWidth int
 var zeroPad bool
 var targetExts string
 
+// RenameRecord はリネーム記録を表す構造体
+type RenameRecord struct {
+	OriginalName string `json:"original_name"`
+	NewName      string `json:"new_name"`
+}
+
+// RenameLog はリネームログ全体を表す構造体
+type RenameLog struct {
+	Directory string         `json:"directory"`
+	Records   []RenameRecord `json:"records"`
+}
+
 func main() {
 	// コマンドライン引数を明示
 	dirPtr := flag.String("dir", "", "対象ディレクトリのパス")
@@ -33,13 +46,20 @@ func main() {
 	widthPtr := flag.Int("width", 3, "採番の桁数")
 	padPtr := flag.Bool("pad", true, "ゼロ埋めするかどうか")
 	extsPtr := flag.String("exts", "jpeg", "対象拡張子 (jpeg,raw,heif など。カンマ区切り)")
+	undoPtr := flag.Bool("undo", false, "最後のリネーム処理をやり直す")
 
 	// 入力をパース
 	flag.Parse()
 
+	// やり直し処理の場合
+	if *undoPtr {
+		undoRename()
+		return
+	}
+
 	// 引数が正しくない場合は実行方法を明示
 	if *dirPtr == "" || *prefixPtr == "" {
-		log.Fatal("使用方法: go run numbering.go -dir=<ディレクトリ> -prefix=<接頭辞> -sort=<ソート順序> -reverse=<逆順にソート> -start=<開始番号> -width=<桁数> -pad=<ゼロ埋め> -exts=<対象拡張子>")
+		log.Fatal("使用方法: go run numbering.go -dir=<ディレクトリ> -prefix=<接頭辞> -sort=<ソート順序> -reverse=<逆順にソート> -start=<開始番号> -width=<桁数> -pad=<ゼロ埋め> -exts=<対象拡張子>\nやり直し: go run numbering.go -undo")
 	}
 
 	dir = *dirPtr
@@ -121,6 +141,10 @@ func extractImageFiles(files []fs.DirEntry) []fs.DirEntry {
 func renameFiles(jpegFiles []fs.DirEntry) {
 	num := startNum
 	successCount := 0
+	var renameLog RenameLog
+	renameLog.Directory = dir
+	renameLog.Records = make([]RenameRecord, 0)
+
 	for _, jpegFile := range jpegFiles {
 		originalFileName := jpegFile.Name()
 		oldPath := filepath.Join(dir, jpegFile.Name())
@@ -142,8 +166,20 @@ func renameFiles(jpegFiles []fs.DirEntry) {
 		} else {
 			fmt.Printf("success: %s -> %s\n", originalFileName, newFileName)
 			successCount++
+
+			// リネーム記録を追加
+			record := RenameRecord{
+				OriginalName: originalFileName,
+				NewName:      newFileName,
+			}
+			renameLog.Records = append(renameLog.Records, record)
 		}
 		num++
+	}
+
+	// リネームログをファイルに保存
+	if successCount > 0 {
+		saveRenameLog(renameLog)
 	}
 
 	fmt.Printf("Completed: %d files renamed\n", successCount)
@@ -205,4 +241,113 @@ func sortFiles(files []fs.DirEntry) {
 	}
 
 	sort.Slice(files, less)
+}
+
+// saveRenameLog はリネームログをJSONファイルに保存します
+func saveRenameLog(renameLog RenameLog) {
+	// 現在の作業ディレクトリを取得
+	workDir, err := os.Getwd()
+	if err != nil {
+		log.Printf("作業ディレクトリの取得に失敗しました: %v", err)
+		return
+	}
+
+	// logsディレクトリを作成
+	logsDir := filepath.Join(workDir, "logs")
+	err = os.MkdirAll(logsDir, 0755)
+	if err != nil {
+		log.Printf("logsディレクトリの作成に失敗しました: %v", err)
+		return
+	}
+
+	timestamp := time.Now().Format("20060102_150405")
+	logFile := filepath.Join(logsDir, fmt.Sprintf("numbering_log_%s.json", timestamp))
+
+	data, err := json.MarshalIndent(renameLog, "", "  ")
+	if err != nil {
+		log.Printf("ログの保存に失敗しました: %v", err)
+		return
+	}
+
+	err = os.WriteFile(logFile, data, 0644)
+	if err != nil {
+		log.Printf("ログファイルの書き込みに失敗しました: %v", err)
+		return
+	}
+
+	fmt.Printf("リネームログを保存しました: %s\n", logFile)
+}
+
+// findLatestLogFile は最新のログファイルを見つけます
+func findLatestLogFile() (string, error) {
+	// 現在の作業ディレクトリを取得
+	workDir, err := os.Getwd()
+	if err != nil {
+		return "", fmt.Errorf("作業ディレクトリの取得に失敗しました: %v", err)
+	}
+
+	// logsディレクトリのパス
+	logsDir := filepath.Join(workDir, "logs")
+
+	files, err := filepath.Glob(filepath.Join(logsDir, "numbering_log_*.json"))
+	if err != nil {
+		return "", fmt.Errorf("ログファイルの検索に失敗しました: %v", err)
+	}
+
+	if len(files) == 0 {
+		return "", fmt.Errorf("ログファイルが見つかりません")
+	}
+
+	// ファイル名のタイムスタンプ部分でソートして最新を取得
+	sort.Strings(files)
+	return files[len(files)-1], nil
+}
+
+// loadRenameLog は最新のリネームログをJSONファイルから読み込みます
+func loadRenameLog() (*RenameLog, error) {
+	logFile, err := findLatestLogFile()
+	if err != nil {
+		return nil, err
+	}
+
+	data, err := os.ReadFile(logFile)
+	if err != nil {
+		return nil, fmt.Errorf("ログファイルの読み込みに失敗しました: %v", err)
+	}
+
+	var renameLog RenameLog
+	err = json.Unmarshal(data, &renameLog)
+	if err != nil {
+		return nil, fmt.Errorf("ログファイルの解析に失敗しました: %v", err)
+	}
+
+	return &renameLog, nil
+}
+
+// undoRename は最後のリネーム処理をやり直します
+func undoRename() {
+	renameLog, err := loadRenameLog()
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	if len(renameLog.Records) == 0 {
+		log.Fatal("やり直しできるリネーム記録がありません")
+	}
+
+	successCount := 0
+	for _, record := range renameLog.Records {
+		oldPath := filepath.Join(renameLog.Directory, record.NewName)
+		newPath := filepath.Join(renameLog.Directory, record.OriginalName)
+
+		err := os.Rename(oldPath, newPath)
+		if err != nil {
+			log.Printf("Failed: %s -> %s (%v)", record.NewName, record.OriginalName, err)
+		} else {
+			fmt.Printf("success: %s -> %s\n", record.NewName, record.OriginalName)
+			successCount++
+		}
+	}
+
+	fmt.Printf("Completed: %d files restored\n", successCount)
 }
