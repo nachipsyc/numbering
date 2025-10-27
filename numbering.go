@@ -21,6 +21,7 @@ var reverse bool
 var startNum int
 var numberWidth int
 var zeroPad bool
+var targetExts string
 
 func main() {
 	// コマンドライン引数を明示
@@ -31,13 +32,14 @@ func main() {
 	startPtr := flag.Int("start", 1, "採番の開始番号")
 	widthPtr := flag.Int("width", 3, "採番の桁数")
 	padPtr := flag.Bool("pad", true, "ゼロ埋めするかどうか")
+	extsPtr := flag.String("exts", "jpeg", "対象拡張子 (jpeg,raw,heif など。カンマ区切り)")
 
 	// 入力をパース
 	flag.Parse()
 
 	// 引数が正しくない場合は実行方法を明示
 	if *dirPtr == "" || *prefixPtr == "" {
-		log.Fatal("使用方法: go run numbering.go -dir=<ディレクトリ> -prefix=<接頭辞> -sort=<ソート順序> -reverse=<逆順にソート> -start=<開始番号> -width=<桁数> -pad=<ゼロ埋め>")
+		log.Fatal("使用方法: go run numbering.go -dir=<ディレクトリ> -prefix=<接頭辞> -sort=<ソート順序> -reverse=<逆順にソート> -start=<開始番号> -width=<桁数> -pad=<ゼロ埋め> -exts=<対象拡張子>")
 	}
 
 	dir = *dirPtr
@@ -47,6 +49,7 @@ func main() {
 	startNum = *startPtr
 	numberWidth = *widthPtr
 	zeroPad = *padPtr
+	targetExts = *extsPtr
 
 	// 対象ディレクトリの中の全ファイルを取得([]fs.DirEntry)
 	files, err := getFiles(dir)
@@ -79,16 +82,35 @@ func getFiles(sourceDir string) ([]fs.DirEntry, error) {
 // used by main()
 func extractImageFiles(files []fs.DirEntry) []fs.DirEntry {
 	var imageFiles []fs.DirEntry
+
+	// 対象拡張子のマップを作成
+	targetMap := make(map[string]bool)
+	extGroups := strings.Split(targetExts, ",")
+	for _, group := range extGroups {
+		group = strings.TrimSpace(strings.ToLower(group))
+		switch group {
+		case "jpeg":
+			targetMap[".jpeg"] = true
+			targetMap[".jpg"] = true
+		case "raw":
+			targetMap[".cr2"] = true
+			targetMap[".cr3"] = true
+			targetMap[".nef"] = true
+			targetMap[".arw"] = true
+			targetMap[".raf"] = true
+			targetMap[".rw2"] = true
+			targetMap[".orf"] = true
+			targetMap[".dng"] = true
+		case "heif":
+			targetMap[".heic"] = true
+			targetMap[".heif"] = true
+		}
+	}
+
 	for _, file := range files {
 		ext := strings.ToLower(filepath.Ext(file.Name()))
-		switch ext {
-		case ".jpeg", ".jpg",
-			// RAW formats
-			".cr2", ".cr3", ".nef", ".arw", ".raf", ".rw2", ".orf", ".dng",
-			// HEIF/HEIC (some devices store EXIF-like metadata)
-			".heic", ".heif":
+		if targetMap[ext] {
 			imageFiles = append(imageFiles, file)
-		default:
 		}
 	}
 
@@ -124,7 +146,7 @@ func renameFiles(jpegFiles []fs.DirEntry) {
 		num++
 	}
 
-	fmt.Printf("total renamed: %d\n", successCount)
+	fmt.Printf("Completed: %d files renamed\n", successCount)
 }
 
 // getExifDateTime は写真のExif情報から撮影日時を取得します
